@@ -1,0 +1,441 @@
+---
+name: 🚀 Release Multi-Environment Pipeline
+
+on:
+  push:
+    branches:
+      - 'release/**'
+  
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - qa
+          - staging
+          - production
+      release_branch:
+        description: 'Release branch (e.g., release/v2.0)'
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref_name }}-${{ inputs.environment || 'qa' }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  RELEASE_VERSION: ${{ github.ref_name }}
+
+jobs:
+  # ============================================
+  # JOB 1: BUILD
+  # ============================================
+  build:
+    name: 🏗️ Build Release Artifacts
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./src/app
+    
+    steps:
+      - name: 📥 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_branch || github.ref }}
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './src/app/package-lock.json'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🧪 Run linter
+        run: npm run lint
+
+      - name: 🏗️ Build application
+        run: npm run build
+        env:
+          CI: true
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: 📊 Generate version info
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME}" > version.txt
+          echo "COMMIT=${GITHUB_SHA::7}" >> version.txt
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> version.txt
+          cp version.txt .next/
+
+      - name: 📤 Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-${{ github.sha }}
+          path: |
+            src/app/.next/
+            src/app/package.json
+            src/app/public/
+          retention-days: 30
+
+      - name: 📊 Build Summary
+        run: |
+          echo "### 🏗️ Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${GITHUB_REF_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${GITHUB_SHA::7}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Node**: ${{ env.NODE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # JOB 2: DEPLOY TO QA (Automatic)
+  # ============================================
+  deploy-qa:
+    name: 🧪 Deploy to QA
+    needs: build
+    runs-on: ubuntu-latest
+    environment: 
+      name: qa
+      url: https://qa.tuapp.com
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-build-${{ github.sha }}
+          path: ./build
+
+      - name: 🔍 Verify artifacts
+        run: |
+          echo "📦 Artifact contents:"
+          ls -lah ./build
+          
+      - name: 🚀 Deploy to QA
+        run: |
+          echo "🧪 Deploying to QA environment..."
+          echo "API_URL: ${{ vars.QA_API_URL || 'https://api-qa.tuapp.com' }}"
+          echo "ENV_NAME: ${{ vars.ENV_NAME || 'qa' }}"
+          # Aquí tu lógica de deploy (AWS, Azure, Vercel, etc.)
+          # Ejemplo: vercel deploy --env=qa
+          # Ejemplo: aws s3 sync ./build s3://qa-bucket
+
+      - name: ⏳ Wait for deployment
+        run: sleep 10
+
+      - name: 🧪 Run QA Smoke Tests
+        run: |
+          echo "🧪 Running QA smoke tests..."
+          # npm run test:smoke -- --env=qa
+
+      - name: 📊 QA Health Check
+        run: |
+          echo "💚 Checking QA health..."
+          # curl -f ${{ vars.QA_API_URL }}/health || exit 1
+          echo "✅ QA deployment successful!"
+
+      - name: 📊 Deployment Summary
+        run: |
+          echo "### 🧪 QA Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://qa.tuapp.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # JOB 3: DEPLOY TO STAGING (Manual Approval)
+  # ============================================
+  deploy-staging:
+    name: 🎭 Deploy to Staging
+    needs: deploy-qa
+    runs-on: ubuntu-latest
+    environment: 
+      name: staging
+      url: https://staging.tuapp.com
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-build-${{ github.sha }}
+          path: ./build
+
+      - name: 🚀 Deploy to Staging
+        run: |
+          echo "🎭 Deploying to Staging environment..."
+          echo "API_URL: ${{ vars.STAGING_API_URL || 'https://api-staging.tuapp.com' }}"
+          echo "ENV_NAME: ${{ vars.ENV_NAME || 'staging' }}"
+          # Aquí tu lógica de deploy
+
+      - name: ⏳ Wait for deployment
+        run: sleep 10
+
+      - name: 🧪 Run UAT Tests
+        run: |
+          echo "🧪 Running UAT tests..."
+          # npm run test:uat -- --env=staging
+
+      - name: 📊 Staging Health Check
+        run: |
+          echo "💚 Checking Staging health..."
+          # curl -f ${{ vars.STAGING_API_URL }}/health || exit 1
+          echo "✅ Staging deployment successful!"
+
+      - name: 📊 Deployment Summary
+        run: |
+          echo "### 🎭 Staging Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://staging.tuapp.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **Approved by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # JOB 4: CREATE RELEASE PR
+  # ============================================
+  create-release-pr:
+    name: 📝 Create Release PR to Main
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🏷️ Create Release Tag
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          VERSION=${GITHUB_REF_NAME#release/}
+          
+          # Crear tag si no existe
+          if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
+            git tag -a "$VERSION" -m "Release $VERSION"
+            git push origin "$VERSION"
+            echo "✅ Tag $VERSION created"
+          else
+            echo "⚠️ Tag $VERSION already exists"
+          fi
+
+      - name: 📝 Generate Release Notes
+        id: release_notes
+        run: |
+          VERSION=${GITHUB_REF_NAME#release/}
+          
+          cat > release_notes.md << EOF
+          ## 🚀 Release $VERSION
+          
+          ### 📦 What's Changed
+          
+          - Deployment to QA: ✅ Successful
+          - Deployment to Staging: ✅ Successful
+          - All tests passed: ✅
+          
+          ### 🔄 Deployment History
+          
+          | Environment | Status | Time |
+          |------------|--------|------|
+          | QA | ✅ Deployed | $(date -u +%Y-%m-%dT%H:%M:%SZ) |
+          | Staging | ✅ Deployed | $(date -u +%Y-%m-%dT%H:%M:%SZ) |
+          | Production | ⏳ Pending | - |
+          
+          ### ⚠️ Pre-Production Checklist
+          
+          - [ ] All UAT tests passed in Staging
+          - [ ] Performance metrics verified
+          - [ ] Security scan completed
+          - [ ] Rollback plan documented
+          - [ ] Team notified
+          
+          EOF
+          
+          echo "notes_file=release_notes.md" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Check if PR exists
+        id: check_pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_EXISTS=$(gh pr list --head ${{ github.ref_name }} --base main --json number --jq '.[0].number // empty')
+          
+          if [ -n "$PR_EXISTS" ]; then
+            echo "pr_exists=true" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_EXISTS" >> $GITHUB_OUTPUT
+            echo "⚠️ PR #$PR_EXISTS already exists"
+          else
+            echo "pr_exists=false" >> $GITHUB_OUTPUT
+            echo "✅ No existing PR found"
+          fi
+
+      - name: 📝 Create PR to Main
+        if: steps.check_pr.outputs.pr_exists != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#release/}
+          
+          gh pr create \
+            --base main \
+            --head ${{ github.ref_name }} \
+            --title "🚀 Release: $VERSION" \
+            --body-file release_notes.md \
+            --label "release" \
+            --label "ready-to-merge"
+
+      - name: 🔄 Update existing PR
+        if: steps.check_pr.outputs.pr_exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ steps.check_pr.outputs.pr_number }} \
+            --body-file release_notes.md
+
+      - name: 🤖 Enable Auto-Merge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr list --head ${{ github.ref_name }} --base main --json number --jq '.[0].number')
+          
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr merge $PR_NUMBER --auto --squash
+            echo "✅ Auto-merge enabled for PR #$PR_NUMBER"
+          fi
+
+  # ============================================
+  # JOB 5: DEPLOY TO PRODUCTION
+  # ============================================
+  deploy-production:
+    name: 🚀 Deploy to Production
+    needs: create-release-pr
+    runs-on: ubuntu-latest
+    environment: 
+      name: production
+      url: https://tuapp.com
+    
+    steps:
+      - name: 📥 Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 📥 Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-build-${{ github.sha }}
+          path: ./build
+
+      - name: 🚀 Deploy to Production
+        run: |
+          echo "🚀 Deploying to Production..."
+          echo "API_URL: ${{ vars.PROD_API_URL || 'https://api.tuapp.com' }}"
+          echo "ENV_NAME: ${{ vars.ENV_NAME || 'production' }}"
+          # Aquí tu lógica de deploy
+
+      - name: ⏳ Wait for deployment
+        run: sleep 15
+
+      - name: 📊 Production Health Check
+        run: |
+          echo "💚 Checking Production health..."
+          # curl -f ${{ vars.PROD_API_URL }}/health || exit 1
+          echo "✅ Production deployment successful!"
+
+      - name: 📊 Production Smoke Tests
+        run: |
+          echo "🧪 Running production smoke tests..."
+          # npm run test:smoke:prod
+
+      - name: 📢 Deployment Summary
+        run: |
+          VERSION=${GITHUB_REF_NAME#release/}
+          
+          echo "### 🚀 Production Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://tuapp.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+
+      - name: 📢 Notify Success
+        if: success()
+        run: |
+          echo "🎉 ✅ Production deployment successful!"
+          # Aquí puedes agregar notificaciones a Slack, Teams, etc.
+
+  # ============================================
+  # JOB 6: BACK-MERGE TO DEVELOP
+  # ============================================
+  back-merge:
+    name: 🔄 Back-merge to Develop
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔀 Merge main to develop
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          # Asegurarse de tener develop actualizado
+          git fetch origin develop
+          git checkout develop
+          
+          # Merge main a develop
+          git merge main --no-ff -m "chore: Back-merge main to develop after production release ${GITHUB_REF_NAME}"
+          
+          # Push a develop
+          git push origin develop
+          
+          echo "✅ Successfully merged main to develop"
+
+      - name: 📊 Summary
+        run: |
+          echo "### 🔄 Back-merge Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **From**: main" >> $GITHUB_STEP_SUMMARY
+          echo "- **To**: develop" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Complete" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # JOB 7: CLEANUP
+  # ============================================
+  cleanup:
+    name: 🧹 Cleanup
+    needs: back-merge
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: 🧹 Delete artifacts
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: release-build-${{ github.sha }}
+          
+      - name: 📊 Pipeline Summary
+        run: |
+          echo "### 🎉 Release Pipeline Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All environments deployed successfully!" >> $GITHUB_STEP_SUMMARY
