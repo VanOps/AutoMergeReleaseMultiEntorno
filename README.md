@@ -47,7 +47,7 @@ graph LR
     H -->|Auto-merge| I[main]
     I -->|Deploy| J[🚀 Production]
     J -->|Back-merge| A
-    
+
     style D fill:#fdcb6e
     style F fill:#74b9ff
     style J fill:#00b894
@@ -105,6 +105,7 @@ Los environments son esenciales para este flujo. Deben configurarse en **Setting
    - `LOG_LEVEL`: `warn`
 
 **💡 Script de ayuda**:
+
 ```bash
 ./scripts/setup-environments.sh
 ```
@@ -172,6 +173,7 @@ cp -r ../AutoMergeFeature/src/app src/
 ### 4. Configurar Permisos de GitHub Actions
 
 **Settings > Actions > General > Workflow permissions**:
+
 - ☑ **Read and write permissions**
 - ☑ **Allow GitHub Actions to create and approve pull requests**
 
@@ -211,17 +213,20 @@ git push -u origin release/v1.0
 3. Observa cada stage:
 
 **Stage 1: Build** (automático)
+
 - ✅ Compila la aplicación
 - ✅ Ejecuta linter
 - ✅ Sube artifacts
 
 **Stage 2: Deploy QA** (automático)
+
 - ✅ Descarga artifacts
 - ✅ Deploys a QA
 - ✅ Ejecuta smoke tests
 - ✅ Health check
 
 **Stage 3: Deploy Staging** (requiere aprobación)
+
 - ⏸️ **PAUSA** - Espera aprobación manual
 - Ve a Actions > Workflow run > Review deployments
 - Selecciona `staging` y aprueba
@@ -229,12 +234,14 @@ git push -u origin release/v1.0
 - ✅ Ejecuta UAT tests
 
 **Stage 4: Create PR** (automático)
+
 - ✅ Crea tag de versión
 - ✅ Genera release notes
 - ✅ Crea PR a `main`
 - ✅ Habilita auto-merge
 
 **Stage 5: Deploy Production** (requiere aprobación)
+
 - ⏸️ **PAUSA** - Espera aprobación manual (después de merge a main)
 - Aprobar desde el environment `production`
 - ⏳ Wait timer de 5 minutos
@@ -243,6 +250,7 @@ git push -u origin release/v1.0
 - ✅ Smoke tests
 
 **Stage 6: Back-merge** (automático vía PR)
+
 - ✅ Crea rama de back-merge
 - ✅ Crea PR de `main` → `develop`
 - ✅ Habilita auto-merge (si no hay conflictos)
@@ -262,6 +270,7 @@ gh run list --workflow="Release Multi-Environment Pipeline"
 ```
 
 En la UI verás:
+
 ```
 Review pending deployments
 ☐ staging
@@ -368,6 +377,7 @@ gh api repos/:owner/:repo/environments/staging \
 ### PR No Se Crea Automáticamente
 
 Verificar:
+
 - GitHub Actions tiene permisos de write
 - Branch `main` existe
 - No hay PR existente para esa release branch
@@ -404,6 +414,7 @@ git push
 ```
 
 **Si develop está protegida** (escenario actual):
+
 - El workflow crea un PR automáticamente
 - Aprueba el PR desde la UI de GitHub
 - Se hace merge automático (si auto-merge está habilitado)
