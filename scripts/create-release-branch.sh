@@ -50,19 +50,20 @@ git pull origin develop
 echo -e "${GREEN}🌿 Creando rama $RELEASE_BRANCH...${NC}"
 git checkout -b $RELEASE_BRANCH
 
-# Opcional: actualizar version en package.json si existe
-if [ -f "src/app/package.json" ]; then
-    echo -e "${BLUE}📝 ¿Actualizar version en package.json? (y/n)${NC}"
-    read -p "Update: " UPDATE_PACKAGE
-    
-    if [ "$UPDATE_PACKAGE" = "y" ]; then
-        cd src/app
-        npm version ${VERSION#v} --no-git-tag-version
-        cd ../..
-        git add src/app/package.json
-        git commit -m "chore: Bump version to $VERSION"
-    fi
-fi
+# Grabar release notes iniciales
+cat > RELEASE-$VERSION.md <<EOF
+# Release $VERSION
+## Cambios
+- Versión inicial de release $VERSION
+## Fecha de creación
+$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+## Branch strategy
+Esta rama es parte de la estrategia de release multi-entorno.
+Los cambios se propagarán automáticamente a staging y production.
+EOF
+
+git add RELEASE-$VERSION.md
+git commit -m "chore: Initialize release $VERSION"
 
 # Push de la rama
 echo -e "${GREEN}📤 Pushing rama $RELEASE_BRANCH...${NC}"
