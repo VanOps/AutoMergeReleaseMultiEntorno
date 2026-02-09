@@ -232,33 +232,12 @@ jobs:
         id: release_notes
         run: |
           VERSION=${GITHUB_REF_NAME#release/}
+          DEPLOY_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-          cat > release_notes.md << EOF
-          ## 🚀 Release $VERSION
-
-          ### 📦 What's Changed
-
-          - Deployment to QA: ✅ Successful
-          - Deployment to Staging: ✅ Successful
-          - All tests passed: ✅
-
-          ### 🔄 Deployment History
-
-          | Environment | Status | Time |
-          |------------|--------|------|
-          | QA | ✅ Deployed | $(date -u +%Y-%m-%dT%H:%M:%SZ) |
-          | Staging | ✅ Deployed | $(date -u +%Y-%m-%dT%H:%M:%SZ) |
-          | Production | ⏳ Pending | - |
-
-          ### ⚠️ Pre-Production Checklist
-
-          - [ ] All UAT tests passed in Staging
-          - [ ] Performance metrics verified
-          - [ ] Security scan completed
-          - [ ] Rollback plan documented
-          - [ ] Team notified
-
-          EOF
+          # Copiar template y reemplazar variables
+          cp .github/templates/release_pr_body.md release_notes.md
+          sed -i "s/\${VERSION}/$VERSION/g" release_notes.md
+          sed -i "s/\${DEPLOY_TIME}/$DEPLOY_TIME/g" release_notes.md
 
           echo "notes_file=release_notes.md" >> $GITHUB_OUTPUT
 
@@ -460,49 +439,16 @@ jobs:
         run: |
           VERSION=${GITHUB_REF_NAME#release/}
           
-          # Crear archivo temporal para el cuerpo del PR
+          # Seleccionar template según si hay conflictos
           if [ "${{ steps.backmerge.outputs.has_conflicts }}" == "true" ]; then
-            cat > pr_body.md << 'EOF'
-## 🔄 Back-merge from Main to Develop
-
-⚠️ **This back-merge has conflicts that need manual resolution.**
-
-### 📦 Release Info
-- **Version**: $VERSION
-- **From**: main
-- **To**: develop
-
-### ⚠️ Conflicts Detected
-Please resolve conflicts manually and complete the merge.
-
-### ✅ Checklist
-- [ ] Resolve all merge conflicts
-- [ ] Run tests locally
-- [ ] Verify no breaking changes introduced
-
----
-*Automated back-merge after production deployment*
-EOF
+            TEMPLATE=".github/templates/backmerge_pr_body_conflicts.md"
           else
-            cat > pr_body.md << 'EOF'
-## 🔄 Back-merge from Main to Develop
-
-### 📦 Release Info
-- **Version**: $VERSION
-- **From**: main
-- **To**: develop
-- **Status**: ✅ No conflicts
-
-### ✅ What's included
-All changes from the production release $VERSION are being merged back to develop.
-
----
-*Automated back-merge after production deployment*
-EOF
+            TEMPLATE=".github/templates/backmerge_pr_body.md"
           fi
 
-          # Reemplazar $VERSION en el archivo
-          sed -i "s/\$VERSION/$VERSION/g" pr_body.md
+          # Copiar template y reemplazar variables
+          cp "$TEMPLATE" pr_body.md
+          sed -i "s/\${VERSION}/$VERSION/g" pr_body.md
 
           gh pr create \
             --base develop \

@@ -15,9 +15,15 @@ Sistema de automerge para gestionar deployments automáticos a través de múlti
 ```
 .
 ├── .github/
+│   ├── templates/                 # Templates para PR bodies
+│   │   ├── release_pr_body.md     # Template para PRs de release
+│   │   ├── backmerge_pr_body.md   # Template para back-merge sin conflictos
+│   │   └── backmerge_pr_body_conflicts.md  # Template para back-merge con conflictos
 │   └── workflows/
 │       └── release-pipeline.yml   # Pipeline completo QA→Staging→Prod
 ├── scripts/
+│   ├── check_repo_config.sh       # Verificar configuraciones del repo
+│   ├── create-labels.sh           # Crear labels necesarios
 │   ├── create-release-branch.sh   # Crear ramas de release
 │   └── setup-environments.sh      # Guía de configuración de environments
 ├── src/
