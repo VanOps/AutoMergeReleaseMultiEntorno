@@ -13,12 +13,6 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}🚀 Release Branch Creator${NC}"
 echo ""
 
-# Verificar que estamos en un repo git
-if [ ! -d .git ]; then
-    echo -e "${RED}❌ Error: No estás en un repositorio git${NC}"
-    exit 1
-fi
-
 # Verificar que gh CLI está instalado
 if ! command -v gh &> /dev/null; then
     echo -e "${YELLOW}⚠️  Warning: gh CLI no está instalado${NC}"
