@@ -278,6 +278,15 @@ jobs:
             echo "✅ No existing PR found"
           fi
 
+      - name: 🏷️ Ensure Labels Exist
+        if: steps.check_pr.outputs.pr_exists != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Crear labels si no existen (sin fallar si ya existen)
+          gh label create "release" --color "0e8a16" --description "Release PR to production" --force 2>/dev/null || true
+          gh label create "ready-to-merge" --color "0e8a16" --description "Ready for automatic merge" --force 2>/dev/null || true
+
       - name: 📝 Create PR to Main
         if: steps.check_pr.outputs.pr_exists != 'true'
         env:
