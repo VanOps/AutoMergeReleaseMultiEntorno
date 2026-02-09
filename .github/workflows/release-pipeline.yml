@@ -4,12 +4,12 @@ name: 🚀 Release Multi-Environment Pipeline
 on:
   push:
     branches:
-      - 'release/**'
-  
+      - "release/**"
+
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment'
+        description: "Target environment"
         required: true
         type: choice
         options:
@@ -17,7 +17,7 @@ on:
           - staging
           - production
       release_branch:
-        description: 'Release branch (e.g., release/v2.0)'
+        description: "Release branch (e.g., release/v2.0)"
         required: true
         type: string
 
@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: "20"
   RELEASE_VERSION: ${{ github.ref_name }}
 
 jobs:
@@ -36,11 +36,11 @@ jobs:
   build:
     name: 🏗️ Build Release Artifacts
     runs-on: ubuntu-latest
-    
+
     defaults:
       run:
         working-directory: ./src/app
-    
+
     steps:
       - name: 📥 Checkout release branch
         uses: actions/checkout@v4
@@ -51,8 +51,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: './src/app/package-lock.json'
 
       - name: 📦 Install dependencies
         run: npm ci
@@ -98,10 +96,10 @@ jobs:
     name: 🧪 Deploy to QA
     needs: build
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: qa
       url: https://qa.tuapp.com
-    
+
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -116,7 +114,7 @@ jobs:
         run: |
           echo "📦 Artifact contents:"
           ls -lah ./build
-          
+
       - name: 🚀 Deploy to QA
         run: |
           echo "🧪 Deploying to QA environment..."
@@ -155,10 +153,10 @@ jobs:
     name: 🎭 Deploy to Staging
     needs: deploy-qa
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: staging
       url: https://staging.tuapp.com
-    
+
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -208,7 +206,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    
+
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -220,7 +218,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           VERSION=${GITHUB_REF_NAME#release/}
-          
+
           # Crear tag si no existe
           if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
             git tag -a "$VERSION" -m "Release $VERSION"
@@ -234,34 +232,34 @@ jobs:
         id: release_notes
         run: |
           VERSION=${GITHUB_REF_NAME#release/}
-          
+
           cat > release_notes.md << EOF
           ## 🚀 Release $VERSION
-          
+
           ### 📦 What's Changed
-          
+
           - Deployment to QA: ✅ Successful
           - Deployment to Staging: ✅ Successful
           - All tests passed: ✅
-          
+
           ### 🔄 Deployment History
-          
+
           | Environment | Status | Time |
           |------------|--------|------|
           | QA | ✅ Deployed | $(date -u +%Y-%m-%dT%H:%M:%SZ) |
           | Staging | ✅ Deployed | $(date -u +%Y-%m-%dT%H:%M:%SZ) |
           | Production | ⏳ Pending | - |
-          
+
           ### ⚠️ Pre-Production Checklist
-          
+
           - [ ] All UAT tests passed in Staging
           - [ ] Performance metrics verified
           - [ ] Security scan completed
           - [ ] Rollback plan documented
           - [ ] Team notified
-          
+
           EOF
-          
+
           echo "notes_file=release_notes.md" >> $GITHUB_OUTPUT
 
       - name: 🔍 Check if PR exists
@@ -270,7 +268,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_EXISTS=$(gh pr list --head ${{ github.ref_name }} --base main --json number --jq '.[0].number // empty')
-          
+
           if [ -n "$PR_EXISTS" ]; then
             echo "pr_exists=true" >> $GITHUB_OUTPUT
             echo "pr_number=$PR_EXISTS" >> $GITHUB_OUTPUT
@@ -286,7 +284,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=${GITHUB_REF_NAME#release/}
-          
+
           gh pr create \
             --base main \
             --head ${{ github.ref_name }} \
@@ -308,7 +306,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER=$(gh pr list --head ${{ github.ref_name }} --base main --json number --jq '.[0].number')
-          
+
           if [ -n "$PR_NUMBER" ]; then
             gh pr merge $PR_NUMBER --auto --squash
             echo "✅ Auto-merge enabled for PR #$PR_NUMBER"
@@ -321,10 +319,10 @@ jobs:
     name: 🚀 Deploy to Production
     needs: create-release-pr
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: production
       url: https://tuapp.com
-    
+
     steps:
       - name: 📥 Checkout main branch
         uses: actions/checkout@v4
@@ -361,7 +359,7 @@ jobs:
       - name: 📢 Deployment Summary
         run: |
           VERSION=${GITHUB_REF_NAME#release/}
-          
+
           echo "### 🚀 Production Deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: $VERSION" >> $GITHUB_STEP_SUMMARY
@@ -385,7 +383,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -398,17 +396,17 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          
+
           # Asegurarse de tener develop actualizado
           git fetch origin develop
           git checkout develop
-          
+
           # Merge main a develop
           git merge main --no-ff -m "chore: Back-merge main to develop after production release ${GITHUB_REF_NAME}"
-          
+
           # Push a develop
           git push origin develop
-          
+
           echo "✅ Successfully merged main to develop"
 
       - name: 📊 Summary
@@ -427,13 +425,13 @@ jobs:
     needs: back-merge
     runs-on: ubuntu-latest
     if: always()
-    
+
     steps:
       - name: 🧹 Delete artifacts
         uses: geekyeggo/delete-artifact@v5
         with:
           name: release-build-${{ github.sha }}
-          
+
       - name: 📊 Pipeline Summary
         run: |
           echo "### 🎉 Release Pipeline Complete" >> $GITHUB_STEP_SUMMARY
