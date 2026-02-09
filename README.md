@@ -242,8 +242,11 @@ git push -u origin release/v1.0
 - ✅ Health checks
 - ✅ Smoke tests
 
-**Stage 6: Back-merge** (automático)
-- ✅ Merge de `main` → `develop`
+**Stage 6: Back-merge** (automático vía PR)
+- ✅ Crea rama de back-merge
+- ✅ Crea PR de `main` → `develop`
+- ✅ Habilita auto-merge (si no hay conflictos)
+- ⏸️ Espera aprobación (si develop está protegida)
 - ✅ Sincroniza develop con producción
 
 ### 6. Aprobar Deployments
@@ -379,20 +382,31 @@ gh pr create --base main --head release/v1.0 \
   --label "release"
 ```
 
-### Back-merge Falla
+### Back-merge Falla o Tiene Conflictos
 
-Conflictos entre `main` y `develop`:
+Si el back-merge automático tiene conflictos:
+
+**El workflow creará un PR** que deberás resolver manualmente:
 
 ```bash
-# Resolver manualmente
-git checkout develop
-git pull origin develop
-git merge main
+# Ver PR de back-merge pendiente
+gh pr list --label "back-merge"
+
+# Checkout del PR y resolver conflictos localmente
+gh pr checkout <PR_NUMBER>
+git merge origin/main
 # Resolver conflictos
 git add .
-git commit
-git push origin develop
+git commit -m "chore: Resolve back-merge conflicts"
+git push
+
+# O resolver en la UI de GitHub usando el web editor
 ```
+
+**Si develop está protegida** (escenario actual):
+- El workflow crea un PR automáticamente
+- Aprueba el PR desde la UI de GitHub
+- Se hace merge automático (si auto-merge está habilitado)
 
 ### Rollback de Production
 
@@ -438,7 +452,11 @@ git pull
 # - Wait timer: 5 min
 # - Production Deploy: ✅ 5 min
 # - Health Checks: ✅ 2 min
-# - Back-merge to develop: ✅ 1 min
+# - Back-merge PR created: ✅ 1 min
+
+# Día 5: Aprobar back-merge (si develop está protegida)
+# - Review back-merge PR
+# - Auto-merge completes: ✅
 
 # ✅ Release completo!
 ```

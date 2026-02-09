@@ -392,6 +392,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - name: 📥 Checkout
@@ -401,30 +402,138 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🔀 Merge main to develop
+      - name: 🔀 Create back-merge branch
+        id: backmerge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
 
-          # Asegurarse de tener develop actualizado
+          # Crear rama temporal para el back-merge
+          VERSION=${GITHUB_REF_NAME#release/}
+          BACKMERGE_BRANCH="backmerge/main-to-develop-${VERSION}"
+          
           git fetch origin develop
-          git checkout develop
+          git checkout -b $BACKMERGE_BRANCH origin/develop
 
-          # Merge main a develop
-          git merge main --no-ff -m "chore: Back-merge main to develop after production release ${GITHUB_REF_NAME}"
+          # Intentar merge de main
+          if git merge origin/main --no-ff -m "chore: Back-merge main to develop after production release $VERSION"; then
+            git push origin $BACKMERGE_BRANCH
+            echo "branch_name=$BACKMERGE_BRANCH" >> $GITHUB_OUTPUT
+            echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            echo "✅ Back-merge branch created successfully"
+          else
+            echo "has_conflicts=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Merge conflicts detected - will create PR for manual resolution"
+            git merge --abort
+            git push origin $BACKMERGE_BRANCH
+            echo "branch_name=$BACKMERGE_BRANCH" >> $GITHUB_OUTPUT
+          fi
 
-          # Push a develop
-          git push origin develop
+      - name: 🔍 Check if back-merge PR exists
+        id: check_backmerge_pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_EXISTS=$(gh pr list --head ${{ steps.backmerge.outputs.branch_name }} --base develop --json number --jq '.[0].number // empty')
+          
+          if [ -n "$PR_EXISTS" ]; then
+            echo "pr_exists=true" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_EXISTS" >> $GITHUB_OUTPUT
+            echo "⚠️ Back-merge PR #$PR_EXISTS already exists"
+          else
+            echo "pr_exists=false" >> $GITHUB_OUTPUT
+          fi
 
-          echo "✅ Successfully merged main to develop"
+      - name: 🏷️ Ensure back-merge label exists
+        if: steps.check_backmerge_pr.outputs.pr_exists != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "back-merge" --color "0366d6" --description "Automatic back-merge from main to develop" --force 2>/dev/null || true
+
+      - name: 📝 Create back-merge PR
+        if: steps.check_backmerge_pr.outputs.pr_exists != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#release/}
+          
+          # Crear archivo temporal para el cuerpo del PR
+          if [ "${{ steps.backmerge.outputs.has_conflicts }}" == "true" ]; then
+            cat > pr_body.md << 'EOF'
+## 🔄 Back-merge from Main to Develop
+
+⚠️ **This back-merge has conflicts that need manual resolution.**
+
+### 📦 Release Info
+- **Version**: $VERSION
+- **From**: main
+- **To**: develop
+
+### ⚠️ Conflicts Detected
+Please resolve conflicts manually and complete the merge.
+
+### ✅ Checklist
+- [ ] Resolve all merge conflicts
+- [ ] Run tests locally
+- [ ] Verify no breaking changes introduced
+
+---
+*Automated back-merge after production deployment*
+EOF
+          else
+            cat > pr_body.md << 'EOF'
+## 🔄 Back-merge from Main to Develop
+
+### 📦 Release Info
+- **Version**: $VERSION
+- **From**: main
+- **To**: develop
+- **Status**: ✅ No conflicts
+
+### ✅ What's included
+All changes from the production release $VERSION are being merged back to develop.
+
+---
+*Automated back-merge after production deployment*
+EOF
+          fi
+
+          # Reemplazar $VERSION en el archivo
+          sed -i "s/\$VERSION/$VERSION/g" pr_body.md
+
+          gh pr create \
+            --base develop \
+            --head ${{ steps.backmerge.outputs.branch_name }} \
+            --title "🔄 Back-merge: main → develop (Release $VERSION)" \
+            --body-file pr_body.md \
+            --label "back-merge"
+
+          PR_NUMBER=$(gh pr list --head ${{ steps.backmerge.outputs.branch_name }} --base develop --json number --jq '.[0].number')
+          
+          # Si no hay conflictos, habilitar auto-merge
+          if [ "${{ steps.backmerge.outputs.has_conflicts }}" == "false" ]; then
+            gh pr merge $PR_NUMBER --auto --merge || echo "⚠️ Could not enable auto-merge (may require approvals)"
+          fi
 
       - name: 📊 Summary
         run: |
-          echo "### 🔄 Back-merge Complete" >> $GITHUB_STEP_SUMMARY
+          VERSION=${GITHUB_REF_NAME#release/}
+          
+          echo "### 🔄 Back-merge to Develop" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **From**: main" >> $GITHUB_STEP_SUMMARY
-          echo "- **To**: develop" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status**: ✅ Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **To**: develop (via PR)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ steps.backmerge.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Conflicts**: ${{ steps.backmerge.outputs.has_conflicts == 'true' && '⚠️ Yes - requires manual resolution' || '✅ No' }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.check_backmerge_pr.outputs.pr_exists }}" == "true" ]; then
+            echo "- **PR**: #${{ steps.check_backmerge_pr.outputs.pr_number }} (already exists)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **PR**: Created successfully" >> $GITHUB_STEP_SUMMARY
+          fi
 
   # ============================================
   # JOB 7: CLEANUP
