@@ -392,8 +392,21 @@ jobs:
           # Crear rama temporal para el back-merge
           VERSION=${GITHUB_REF_NAME#release/}
           BACKMERGE_BRANCH="backmerge/main-to-develop-${VERSION}"
-          
+
           git fetch origin develop
+          git fetch origin main
+
+          # Verificar si hay diferencias entre main y develop
+          DIFF_COUNT=$(git rev-list --count origin/develop..origin/main)
+
+          if [ "$DIFF_COUNT" -eq 0 ]; then
+            echo "skip_backmerge=true" >> $GITHUB_OUTPUT
+            echo "branch_name=$BACKMERGE_BRANCH" >> $GITHUB_OUTPUT
+            echo "⚠️ No differences between main and develop - skipping back-merge"
+            exit 0
+          fi
+
+          echo "skip_backmerge=false" >> $GITHUB_OUTPUT
           git checkout -b $BACKMERGE_BRANCH origin/develop
 
           # Intentar merge de main
@@ -405,18 +418,22 @@ jobs:
           else
             echo "has_conflicts=true" >> $GITHUB_OUTPUT
             echo "⚠️ Merge conflicts detected - will create PR for manual resolution"
-            git merge --abort
-            git push origin $BACKMERGE_BRANCH
             echo "branch_name=$BACKMERGE_BRANCH" >> $GITHUB_OUTPUT
+            
+            # No abortar el merge - crear la rama con conflictos para revisión manual
+            git add -A
+            git commit -m "chore: Back-merge main to develop (CONFLICTS - requires manual resolution)" || true
+            git push origin $BACKMERGE_BRANCH
           fi
 
       - name: 🔍 Check if back-merge PR exists
+        if: steps.backmerge.outputs.skip_backmerge != 'true'
         id: check_backmerge_pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_EXISTS=$(gh pr list --head ${{ steps.backmerge.outputs.branch_name }} --base develop --json number --jq '.[0].number // empty')
-          
+
           if [ -n "$PR_EXISTS" ]; then
             echo "pr_exists=true" >> $GITHUB_OUTPUT
             echo "pr_number=$PR_EXISTS" >> $GITHUB_OUTPUT
@@ -426,19 +443,19 @@ jobs:
           fi
 
       - name: 🏷️ Ensure back-merge label exists
-        if: steps.check_backmerge_pr.outputs.pr_exists != 'true'
+        if: steps.backmerge.outputs.skip_backmerge != 'true' && steps.check_backmerge_pr.outputs.pr_exists != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh label create "back-merge" --color "0366d6" --description "Automatic back-merge from main to develop" --force 2>/dev/null || true
 
       - name: 📝 Create back-merge PR
-        if: steps.check_backmerge_pr.outputs.pr_exists != 'true'
+        if: steps.backmerge.outputs.skip_backmerge != 'true' && steps.check_backmerge_pr.outputs.pr_exists != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=${GITHUB_REF_NAME#release/}
-          
+
           # Seleccionar template según si hay conflictos
           if [ "${{ steps.backmerge.outputs.has_conflicts }}" == "true" ]; then
             TEMPLATE=".github/templates/backmerge_pr_body_conflicts.md"
@@ -458,7 +475,7 @@ jobs:
             --label "back-merge"
 
           PR_NUMBER=$(gh pr list --head ${{ steps.backmerge.outputs.branch_name }} --base develop --json number --jq '.[0].number')
-          
+
           # Si no hay conflictos, habilitar auto-merge
           if [ "${{ steps.backmerge.outputs.has_conflicts }}" == "false" ]; then
             gh pr merge $PR_NUMBER --auto --merge || echo "⚠️ Could not enable auto-merge (may require approvals)"
@@ -467,17 +484,23 @@ jobs:
       - name: 📊 Summary
         run: |
           VERSION=${GITHUB_REF_NAME#release/}
-          
+
           echo "### 🔄 Back-merge to Develop" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **From**: main" >> $GITHUB_STEP_SUMMARY
-          echo "- **To**: develop (via PR)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch**: ${{ steps.backmerge.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Conflicts**: ${{ steps.backmerge.outputs.has_conflicts == 'true' && '⚠️ Yes - requires manual resolution' || '✅ No' }}" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ steps.check_backmerge_pr.outputs.pr_exists }}" == "true" ]; then
-            echo "- **PR**: #${{ steps.check_backmerge_pr.outputs.pr_number }} (already exists)" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.backmerge.outputs.skip_backmerge }}" == "true" ]; then
+            echo "- **Status**: ⏭️ Skipped (develop already up to date)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Info**: No differences found between main and develop" >> $GITHUB_STEP_SUMMARY
           else
+            echo "- **From**: main" >> $GITHUB_STEP_SUMMARY
+            echo "- **To**: develop (via PR)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Branch**: ${{ steps.backmerge.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Conflicts**: ${{ steps.backmerge.outputs.has_conflicts == 'true' && '⚠️ Yes - requires manual resolution' || '✅ No' }}" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "${{ steps.check_backmerge_pr.outputs.pr_exists }}" == "true" ]; then
+              echo "- **PR**: #${{ steps.check_backmerge_pr.outputs.pr_number }} (already exists)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **PR**: Created successfully" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "- **PR**: Created successfully" >> $GITHUB_STEP_SUMMARY
           fi
 
